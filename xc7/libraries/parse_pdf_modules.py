@@ -242,6 +242,7 @@ def process_ports(tbl):
     # transform headers as necessary
     for i, (x, name) in enumerate(tbl.heads):
         if name.lower().startswith('direction'): tbl.heads[i] = (x, 'Type')
+        if name == 'Name': tbl.heads[i] = (x, 'Port')   # UG615/KEEPER
     # sort the items into categories
     ports = tbl.arrange_items()
     # process the rows one-by-one (in reverse, because we might insert new entries)
@@ -260,16 +261,20 @@ def process_ports(tbl):
         # process the "direction" entry
         if x['Type'] == 'Input': dir = 'input'
         elif x['Type'] == 'Output': dir = 'output'
-        elif x['Type'] == 'In/out': dir = 'inout'
+        elif x['Type'] in ('In/out','Inout'): dir = 'inout'
         else: assert False, 'Invalid pin type %s' % repr(x['Type'])
         x['Type'] = dir
         # process the port name
         name = re.sub(
             r'\s', '', x['Port']
         )  # remove any spaces from (multiline) name entries (e.g. MMCME2_BASE)
-        if '<' in name:  # bus pins MIGHT be explicitly listed in name; perform sanity check
-            name, bits = name.split('<', 1)
-            assert bits == '%d:0>' % (wid - 1)
+        
+        M = re.search(r'(\d+):(\d+)', name)
+        if M is not None: # bus pins MIGHT be explicitly listed in name; perform sanity check
+            if int(M.group(1)) == (wid-1) and int(M.group(2)) == 0:
+                name = name[:(M.start(1)-1)]
+            else:
+                print('Warning: port',name,'does not match pattern')
         elif '-' in name:  # entry is a range of pins (e.g. ISERDESE2)
             n, start, stop = re.match(
                 r'([A-Z]+)([0-9]+)\s*-\s*[A-Z]+([0-9]+)', name
@@ -301,6 +306,7 @@ def process_attributes(tbl):
         if name in ('Allowed Values', 'Allowed_Values'):
             tbl.heads[i] = (x, 'Allowed')
         if name == 'Descriptions': tbl.heads[i] = (x, 'Description')
+        if name == 'Data Type': tbl.heads[i] = (x, 'Type')  # UG615
     # transform text as necessary
     for i, (y, x, t) in enumerate(tbl.items):
         t = t.replace(u'\u2122', '(tm)')  # IOBUF (DRIVE)
@@ -310,6 +316,11 @@ def process_attributes(tbl):
     attribs = tbl.arrange_items()
     # post-process the entries
     for i, x in rev_enumerate(attribs):
+        if x['Type'] == '': # UG615/IODELAY2
+            # merge with the previous line of the table
+            for k in x: attribs[i-1][k] += x[k]
+            attribs.pop(i)
+            continue
         if x['Type'] == 'STRING' and x[
                 'Default'] == 'None':  # ICAPE2 (SIM_CFG_FILE_NAME)
             x['Default'] = '""'
@@ -325,7 +336,7 @@ def process_attributes(tbl):
                 val = '0'
             else:
                 raise TypeError
-            assert x['Type'] == 'HEX'
+            assert x['Type'].lower().startswith('hex')
             M = re.search(r'(\d+)[-\s][Bb]it', x['Allowed'])
             if M is None: break
             sz = int(M.group(1))
@@ -404,6 +415,7 @@ def process_specs(infile, modules=None):
 
     # run through the modules
     for module in modules:
+        if module == 'PLL_BASE': continue   # UG615/PLL_BASE is a problem
         sys.stderr.write('Processing %s...\n' % module)
         node = E.module(name=module)
         # process the ports of this module
