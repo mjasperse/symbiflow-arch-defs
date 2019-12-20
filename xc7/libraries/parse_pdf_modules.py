@@ -109,6 +109,7 @@ class PDFTableParser(PDFLayoutAnalyzer):
             if y < top + COL_MARGIN:
                 self.heads.append((x - COL_MARGIN, t))
                 self.items.pop(i)
+        if len(self.heads) < 2: return False  # no content on this page
         self.heads = sorted(self.heads)
         # figure out the rows
         leftcol = self.heads[1][0]
@@ -144,6 +145,7 @@ class PDFTableParser(PDFLayoutAnalyzer):
                 self.items[i][0] = int(y)
         # now sort items by corrected y-positions
         self.items = sorted(self.items)
+        return True
 
     def get_row(self, y):
         for i, (y0, t) in enumerate(self.rows[1:]):
@@ -205,13 +207,15 @@ def parse_module_pages(doc, start_at):
     for (level, title, dest, a, se) in doc.get_outlines():
         if level == 2:  # chapter titles
             # modules are defined in chapter 4
-            process = title.startswith('Ch. 4:')
+            process = 'Design Elements' in title
         elif process and level == 3:  # module names are defined at level 3 of the TOC
             module = title
+            if title.isupper(): parts[module] = []
+            start = None
         elif level == 4 and module is not None and title.startswith(start_at):
             # NB: possible incosistency in "title" name (e.g. LUT6)
             start = resolve_goto_action(doc, a)
-        elif start is not None and module not in parts:  # i.e. this is the FIRST following section
+        elif start is not None:  # i.e. this is the FIRST following section
             stop = resolve_goto_action(doc, a)
             parts[module] = find_pages(pgs, start, stop)
             start = None
@@ -234,7 +238,7 @@ def process_ports(tbl):
             tbl.items.insert(
                 i + 1, (y, (x + tbl.items[i + 1][1]) / 2, 'Width')
             )
-    tbl.process_table()
+    if not tbl.process_table(): return []
     # transform headers as necessary
     for i, (x, name) in enumerate(tbl.heads):
         if name.lower().startswith('direction'): tbl.heads[i] = (x, 'Type')
@@ -291,7 +295,7 @@ def process_ports(tbl):
 
 def process_attributes(tbl):
     if not len(tbl.items): return []
-    tbl.process_table()
+    if not tbl.process_table(): return []
     # transform headers as necessary
     for i, (x, name) in enumerate(tbl.heads):
         if name in ('Allowed Values', 'Allowed_Values'):
